@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+
+import rospy
+from duckietown_msgs.msg import Twist2DStamped
+from duckietown_msgs.msg import FSMState
+from duckietown_msgs.msg import WheelEncoderStamped
+from sensor_msgs.msg import Range
+
+class Drive_Straight:
+    def _init_(self):
+        # Initialize global class variables
+        self.cmd_msg = Twist2DStamped()
+
+        # Initialize ROS node
+        rospy.init_node('drive_straight_node', anonymous=True)
+        self.front_dis = 0
+
+        # Initialize Pub/Subs
+        self.pub = rospy.Publisher('/duckie/car_cmd_switch_node/cmd', Twist2DStamped, queue_size=1)
+        rospy.Subscriber('/duckie/fsm_node/mode', FSMState, self.fsm_callback, queue_size=1)
+        rospy.Subscriber('/duckie/front_center_tof_driver_node/range', Range, self.range_callback, queue_size=1)
+
+    # Robot only moves when lane following is selected on the duckiebot joystick app
+    def fsm_callback(self, msg):
+        rospy.loginfo("State: %s", msg.state)
+        if msg.state == "NORMAL_JOYSTICK_CONTROL":
+            self.stop_robot()
+        elif msg.state == "LANE_FOLLOWING":
+            rospy.sleep(1)  # Wait for a sec for the node to be ready
+            self.move_straight()
+
+    def range_callback(self, msg):
+        self.front_dis = msg.range
+
+    # Sends zero velocities to stop the robot
+    def stop_robot(self):
+        self.cmd_msg.header.stamp = rospy.Time.now()
+        self.cmd_msg.v = 0.0
+        self.cmd_msg.omega = 0.0
+        self.pub.publish(self.cmd_msg)
+
+    # Spin forever but listen to message callbacks
+    def run(self):
+        rospy.spin()
+
+    # Move the robot in a straight line
+    def move_straight(self):
+        rate = rospy.Rate(10)  # 10 Hz
+        while not rospy.is_shutdown():
+            if self.front_dis < 0.3:
+                self.stop_robot()
+            else:
+                self.cmd_msg.header.stamp = rospy.Time.now()
+                self.cmd_msg.v = 0.5  # straight line velocity
+                self.cmd_msg.omega = 0.0
+                self.pub.publish(self.cmd_msg)
+                rospy.loginfo("Moving Forward!")
+            rate.sleep()
+
+if _name_ == '_main_':
+    try:
+        duckiebot_movement = Drive_Straight()
+        duckiebot_movement.run()
+    except rospy.ROSInterruptException:
+        pass
